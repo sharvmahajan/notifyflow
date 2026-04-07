@@ -1,0 +1,116 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String        @id @default(cuid())
+  name         String
+  email        String        @unique
+  passwordHash String
+  plan         Plan          @default(free)
+  status       UserStatus    @default(active)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  apiKeys      ApiKey[]
+  templates    Template[]
+  notifications Notification[]
+  refreshTokens RefreshToken[]
+}
+
+model ApiKey {
+  id           String        @id @default(cuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id])
+  name         String
+  keyHash      String        @unique
+  prefix       String
+  environment  Environment   @default(live)
+  permissions  Json          @default("[]")
+  lastUsedAt   DateTime?
+  revokedAt    DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  notifications Notification[]
+  @@index([userId])
+  @@index([keyHash])
+}
+
+model Template {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  name        String
+  channel     Channel
+  subject     String?
+  body        String
+  variables   Json      @default("[]")
+  usageCount  Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  @@index([userId])
+}
+
+model Notification {
+  id           String             @id @default(cuid())
+  userId       String
+  user         User               @relation(fields: [userId], references: [id])
+  apiKeyId     String?
+  apiKey       ApiKey?            @relation(fields: [apiKeyId], references: [id])
+  channel      Channel
+  recipient    String
+  subject      String?
+  body         String
+  status       NotificationStatus @default(pending)
+  latencyMs    Int?
+  errorMessage String?
+  sentAt       DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  @@index([userId])
+  @@index([userId, channel])
+  @@index([userId, status])
+  @@index([userId, createdAt])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([userId])
+}
+
+enum Plan {
+  free
+  pro
+  enterprise
+}
+
+enum UserStatus {
+  active
+  suspended
+}
+
+enum Environment {
+  live
+  test
+}
+
+enum Channel {
+  email
+  sms
+  inapp
+}
+
+enum NotificationStatus {
+  pending
+  delivered
+  failed
+}
