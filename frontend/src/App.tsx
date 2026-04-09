@@ -9,6 +9,7 @@ import { Templates } from './pages/Templates';
 import { Send } from './pages/Send';
 import { Logs } from './pages/Logs';
 import { Docs } from './pages/Docs';
+import { SocDashboard } from './pages/SocDashboard';
 import { Layout } from './components/Layout';
 
 const RequireAuth = ({ children }: { children: React.ReactNode }) => {
@@ -32,6 +33,7 @@ const AppRoutes = () => {
         <Route path="/send" element={<Send />} />
         <Route path="/logs" element={<Logs />} />
         <Route path="/docs" element={<Docs />} />
+        <Route path="/soc" element={<SocDashboard />} />
       </Route>
       
       <Route path="*" element={<Navigate to="/" replace />} />

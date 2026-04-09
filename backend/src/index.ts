@@ -11,6 +11,8 @@ import templateRoutes from './routes/template.route';
 import logRoutes from './routes/log.route';
 import analyticsRoutes from './routes/analytics.route';
 
+import socRoutes from './routes/soc.route';
+
 dotenv.config();
 
 const app = express();
@@ -32,6 +34,7 @@ app.use('/api/v1', notificationRoutes);
 app.use('/api/templates', templateRoutes);
 app.use('/api/logs', logRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/soc/alerts', socRoutes);
 
 app.get('/', (req, res) => {
   res.send('NotifyFlow API is running');

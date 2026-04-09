@@ -15,12 +15,13 @@ async function main() {
   await prisma.user.deleteMany();
 
   // Create demo user
-  const passwordHash = await bcrypt.hash('demo1234', 12);
+  const passwordHash = await bcrypt.hash('password', 12);
   const user = await prisma.user.create({
     data: {
-      name: 'Demo User',
-      email: 'demo@notifyflow.dev',
+      name: 'Admin User',
+      email: 'test@notifyflow.dev',
       passwordHash,
+      isAdmin: true,
     },
   });
 
