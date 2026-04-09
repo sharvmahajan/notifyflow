@@ -6,6 +6,8 @@ import { validate } from '../middleware/validate';
 import { apiKeyMiddleware } from '../middleware/apikey.middleware';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { Channel } from '@prisma/client';
+import { logger } from '../soc/logging/logger';
+import { checkApiSpikes } from '../soc/detection/rules';
 
 const router = Router();
 
@@ -23,7 +25,20 @@ const sendLimiter = rateLimit({
   windowMs: 60 * 1000, 
   max: 100, 
   keyGenerator: (req: any) => req.apiKey?.prefix || req.user.id,
-  handler: (req, res) => res.status(429).json({ error: 'Too many requests, try again later' }),
+  handler: async (req: any, res) => {
+    logger.warn('Rate limit exceeded', {
+      eventType: 'RATE_LIMIT',
+      userId: req.user?.id,
+      ip: req.ip,
+      endpoint: req.originalUrl
+    });
+    
+    if (req.user?.id) {
+       await checkApiSpikes(req.user.id);
+    }
+
+    res.status(429).json({ error: 'Too many requests, try again later' });
+  },
 });
 
 const sendSchema = z.object({

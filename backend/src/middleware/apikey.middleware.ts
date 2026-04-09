@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcrypt';
 import prisma from '../lib/prisma';
+import { logger } from '../soc/logging/logger';
+import { checkApiKeyLeakage } from '../soc/detection/rules';
 
 export const apiKeyMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization || req.headers['x-api-key'] as string;
@@ -36,6 +38,19 @@ export const apiKeyMiddleware = async (req: Request, res: Response, next: NextFu
         // Attach to request
         (req as any).apiKey = apiKey;
         (req as any).user = apiKey.user;
+
+        // Strict Logging: Record every API key usage
+        logger.info('API key usage', {
+          eventType: 'API_KEY_USAGE',
+          userId: apiKey.userId,
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+          metadata: { apiKeyId: apiKey.id }
+        });
+
+        // Trigger leakage check
+        await checkApiKeyLeakage(apiKey.id);
+
         return next();
       }
     }

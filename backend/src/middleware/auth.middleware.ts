@@ -16,6 +16,7 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
       id: decoded.id,
       email: decoded.email,
       plan: decoded.plan,
+      isAdmin: (decoded as any).isAdmin,
     };
     next();
   } catch (err: any) {

@@ -58,7 +58,7 @@ export class AuthService {
   }
 
   private static async generateTokens(user: User): Promise<{ user: Partial<User>, accessToken: string, refreshToken: string }> {
-    const payload = { id: user.id, email: user.email, plan: user.plan };
+    const payload = { id: user.id, email: user.email, plan: user.plan, isAdmin: user.isAdmin };
     const accessToken = signAccessToken(payload);
     const refreshToken = signRefreshToken(payload);
 

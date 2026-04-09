@@ -7,6 +7,7 @@ interface User {
   email: string;
   name?: string;
   plan?: string;
+  isAdmin?: boolean;
 }
 
 interface AuthContextValue {

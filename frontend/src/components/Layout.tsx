@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Key, FileCode2, Send, History, ScrollText, LogOut, Zap } from 'lucide-react';
+import { LayoutDashboard, Key, FileCode2, Send, History, ScrollText, LogOut, Zap, Shield } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export const Layout = () => {
@@ -13,6 +13,10 @@ export const Layout = () => {
     { to: '/logs', label: 'Logs', icon: History },
     { to: '/docs', label: 'Documentation', icon: ScrollText },
   ];
+
+  if (user?.isAdmin) {
+    navItems.push({ to: '/soc', label: 'Security Center', icon: Shield });
+  }
 
   return (
     <div className="flex bg-background min-h-screen text-textMain">
