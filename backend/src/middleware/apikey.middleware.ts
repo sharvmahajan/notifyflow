@@ -1,4 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
+import { NotificationService } from '../services/notification.service';
+import { NotificationStatus } from '@prisma/client';
 import bcrypt from 'bcrypt';
 import prisma from '../lib/prisma';
 import { logger } from '../soc/logging/logger';
@@ -36,13 +38,40 @@ export const apiKeyMiddleware = async (req: Request, res: Response, next: NextFu
 
   try {
     const candidateKeys = await prisma.apiKey.findMany({
-      where: { prefix, revokedAt: null },
+      where: { prefix },
       include: { user: { select: { id: true, plan: true } } },
     });
 
     for (const apiKey of candidateKeys) {
       const match = await bcrypt.compare(key, apiKey.keyHash);
       if (match) {
+        // Step 4: Check if DELETED first (security - hide existence)
+        if (apiKey.status === 'DELETED') {
+          return res.status(404).json({ success: false, error: 'API not found.' });
+        }
+
+        // Step 3: Check if PAUSED (return 200 with specific message)
+        if (apiKey.status === 'PAUSED') {
+          // Record the attempt for analytics
+          const { to, channel } = req.body || {};
+          if (to && channel) {
+            await NotificationService.record(
+              apiKey.userId,
+              apiKey.id,
+              channel,
+              to,
+              NotificationStatus.paused,
+              'Attempt blocked: API is PAUSED'
+            ).catch(e => console.error('Failed to record paused attempt:', e));
+          }
+
+          return res.status(200).json({
+            success: false,
+            status: 'paused',
+            message: 'This API is currently paused. No notifications will be sent until it is resumed.'
+          });
+        }
+
         await prisma.apiKey.update({
           where: { id: apiKey.id },
           data: { lastUsedAt: new Date() },

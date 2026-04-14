@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { keysApi } from '../api/keys.api';
-import { Plus, Copy, Check, Trash2, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { Plus, Copy, Check, Trash2, Eye, EyeOff, AlertTriangle, BarChart2, Pause, Play } from 'lucide-react';
 
 export const Keys = () => {
+  const navigate = useNavigate();
   const [keys, setKeys] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -10,6 +12,11 @@ export const Keys = () => {
   const [newKey, setNewKey] = useState<any>(null);
   const [copied, setCopied] = useState(false);
   const [showKey, setShowKey] = useState(false);
+
+  // Lifecycle Modal State
+  const [lifecycleModal, setLifecycleModal] = useState<{ type: 'pause' | 'resume' | 'delete', key: any } | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
 
   const fetchKeys = () => {
     setLoading(true);
@@ -32,10 +39,25 @@ export const Keys = () => {
     }
   };
 
-  const handleRevoke = async (id: string) => {
-    if (confirm('Are you sure you want to revoke this key?')) {
-      await keysApi.revoke(id);
+  const executeLifecycleAction = async () => {
+    if (!lifecycleModal) return;
+    const { type, key } = lifecycleModal;
+    
+    if (type === 'delete' && deleteConfirmName !== key.name) return;
+
+    setActionLoading(true);
+    try {
+      if (type === 'pause') await keysApi.pause(key.id);
+      if (type === 'resume') await keysApi.resume(key.id);
+      if (type === 'delete') await keysApi.delete(key.id);
+      
+      setLifecycleModal(null);
+      setDeleteConfirmName('');
       fetchKeys();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -50,7 +72,7 @@ export const Keys = () => {
       <div className="flex justify-between items-center">
         <header>
           <h1 className="text-3xl font-bold text-white mb-2">API Keys</h1>
-          <p className="text-textMuted">Manage your API keys for different environments.</p>
+          <p className="text-textMuted">Manage your API keys and monitor usage.</p>
         </header>
         <button
           onClick={() => setShowModal(true)}
@@ -103,7 +125,7 @@ export const Keys = () => {
             <thead className="bg-white/5 text-textMuted">
               <tr>
                 <th className="px-6 py-4 font-medium">Name</th>
-                <th className="px-6 py-4 font-medium">Prefix</th>
+                <th className="px-6 py-4 font-medium">Status</th>
                 <th className="px-6 py-4 font-medium">Environment</th>
                 <th className="px-6 py-4 font-medium">Created</th>
                 <th className="px-6 py-4 font-medium">Last Used</th>
@@ -112,27 +134,68 @@ export const Keys = () => {
             </thead>
             <tbody className="divide-y divide-white/5">
               {keys.map((key) => (
-                <tr key={key.id} className="hover:bg-white/[0.02] transition-colors">
-                  <td className="px-6 py-4 text-white font-medium">{key.name}</td>
-                  <td className="px-6 py-4 font-mono text-textMuted flex items-center gap-2">
-                    {key.prefix}••••••••
-                    <button onClick={() => copyToClipboard(key.prefix)} className="hover:text-white" title="Copy Prefix">
-                      <Copy className="w-3 h-3" />
-                    </button>
+                <tr key={key.id} className="hover:bg-white/[0.02] transition-colors group">
+                  <td className="px-6 py-4">
+                    <div className="text-white font-medium mb-1">{key.name}</div>
+                    <div className="font-mono text-[10px] text-textMuted flex items-center gap-1.5">
+                      {key.prefix}••••••••
+                      <button onClick={() => copyToClipboard(key.prefix)} className="hover:text-white" title="Copy Prefix">
+                        <Copy className="w-3 h-3" />
+                      </button>
+                    </div>
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${
-                      key.environment === 'live' ? 'bg-primary/20 text-primary border-primary/30' : 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+                      key.status === 'ACTIVE' ? 'bg-success/10 text-success border-success/20' :
+                      key.status === 'PAUSED' ? 'bg-warning/10 text-warning border-warning/20' :
+                      'bg-danger/10 text-danger border-danger/20'
                     }`}>
-                      {key.environment.toUpperCase()}
+                      {key.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-textMuted">{new Date(key.createdAt).toLocaleDateString()}</td>
-                  <td className="px-6 py-4 text-textMuted">{key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : 'Never'}</td>
+                  <td className="px-6 py-4">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
+                      key.environment === 'live' ? 'bg-primary/10 text-primary border-primary/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                    }`}>
+                      {key.environment}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-textMuted text-xs">{new Date(key.createdAt).toLocaleDateString()}</td>
+                  <td className="px-6 py-4 text-textMuted text-xs">{key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : 'Never'}</td>
                   <td className="px-6 py-4 text-right">
-                    <button onClick={() => handleRevoke(key.id)} className="text-textMuted hover:text-danger p-2 rounded-lg hover:bg-danger/10 transition-colors">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex justify-end gap-1">
+                      <button
+                        onClick={() => navigate(`/keys/${key.id}/analytics`)}
+                        className="p-2 text-textMuted hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+                        title="Analytics"
+                      >
+                        <BarChart2 className="w-4 h-4" />
+                      </button>
+                      {key.status === 'ACTIVE' ? (
+                        <button
+                          onClick={() => setLifecycleModal({ type: 'pause', key })}
+                          className="p-2 text-textMuted hover:text-warning hover:bg-warning/10 rounded-lg transition-colors"
+                          title="Pause"
+                        >
+                          <Pause className="w-4 h-4" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setLifecycleModal({ type: 'resume', key })}
+                          className="p-2 text-textMuted hover:text-success hover:bg-success/10 rounded-lg transition-colors"
+                          title="Resume"
+                        >
+                          <Play className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setLifecycleModal({ type: 'delete', key })}
+                        className="p-2 text-textMuted hover:text-danger hover:bg-danger/10 rounded-lg transition-colors"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -141,6 +204,7 @@ export const Keys = () => {
         )}
       </div>
 
+      {/* Create Key Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in">
           <div className="bg-surface border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl">
@@ -152,7 +216,7 @@ export const Keys = () => {
                   required autoFocus
                   value={formData.name}
                   onChange={e => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-4 py-2 bg-background border border-white/10 rounded-lg focus:outline-none focus:border-primary text-textMain"
+                  className="w-full px-4 py-2 bg-background border border-white/10 rounded-lg focus:outline-none focus:border-primary text-textMain transition-colors"
                   placeholder="e.g. Production Web App"
                 />
               </div>
@@ -161,7 +225,7 @@ export const Keys = () => {
                 <select
                   value={formData.environment}
                   onChange={e => setFormData({ ...formData, environment: e.target.value })}
-                  className="w-full px-4 py-2 bg-background border border-white/10 rounded-lg focus:outline-none focus:border-primary text-textMain appearance-none"
+                  className="w-full px-4 py-2 bg-background border border-white/10 rounded-lg focus:outline-none focus:border-primary text-textMain appearance-none cursor-pointer"
                 >
                   <option value="test">Test</option>
                   <option value="live">Live</option>
@@ -172,10 +236,75 @@ export const Keys = () => {
                   Cancel
                 </button>
                 <button type="submit" className="px-4 py-2 bg-primary hover:bg-primaryHover text-white font-medium rounded-lg transition-colors">
-                  Generate
+                  Generate Key
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Lifecycle Modal */}
+      {lifecycleModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-surface border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className={`p-3 rounded-xl w-fit mb-4 ${
+              lifecycleModal.type === 'delete' ? 'bg-danger/10 text-danger' :
+              lifecycleModal.type === 'pause' ? 'bg-warning/10 text-warning' :
+              'bg-success/10 text-success'
+            }`}>
+              {lifecycleModal.type === 'delete' ? <Trash2 className="w-6 h-6" /> :
+               lifecycleModal.type === 'pause' ? <Pause className="w-6 h-6" /> :
+               <Play className="w-6 h-6" />}
+            </div>
+            
+            <h3 className="text-xl font-bold text-white mb-2">
+              {lifecycleModal.type === 'delete' ? 'Delete API' :
+               lifecycleModal.type === 'pause' ? 'Pause API' :
+               'Resume API'}
+            </h3>
+            
+            <p className="text-textMuted text-sm mb-6 leading-relaxed">
+              {lifecycleModal.type === 'delete' ? 
+                `This action is irreversible. All notifications using this key will fail immediately. Please type the API name "${lifecycleModal.key.name}" to confirm.` :
+               lifecycleModal.type === 'pause' ?
+                'Pausing this API will temporarily disable and block all notifications sent through this key. You can resume it at any time.' :
+                'Resuming this API will allow it to start sending notifications again.'}
+            </p>
+
+            {lifecycleModal.type === 'delete' && (
+              <input
+                autoFocus
+                value={deleteConfirmName}
+                onChange={e => setDeleteConfirmName(e.target.value)}
+                placeholder="Type API name to confirm"
+                className="w-full px-4 py-2 bg-background border border-white/10 rounded-lg focus:outline-none focus:border-danger text-textMain mb-6"
+              />
+            )}
+
+            <div className="flex justify-end gap-3">
+              <button 
+                disabled={actionLoading}
+                onClick={() => { setLifecycleModal(null); setDeleteConfirmName(''); }} 
+                className="px-4 py-2 text-textMuted hover:text-white transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button 
+                disabled={actionLoading || (lifecycleModal.type === 'delete' && deleteConfirmName !== lifecycleModal.key.name)}
+                onClick={executeLifecycleAction}
+                className={`px-6 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
+                  lifecycleModal.type === 'delete' ? 'bg-danger hover:bg-danger/80 text-white' :
+                  lifecycleModal.type === 'pause' ? 'bg-warning hover:bg-warning/80 text-white' :
+                  'bg-success hover:bg-success/80 text-white'
+                } disabled:opacity-50 disabled:grayscale`}
+              >
+                {actionLoading ? 'Processing...' : 
+                 lifecycleModal.type === 'delete' ? 'Delete Permanently' :
+                 lifecycleModal.type === 'pause' ? 'Pause Now' :
+                 'Resume Now'}
+              </button>
+            </div>
           </div>
         </div>
       )}

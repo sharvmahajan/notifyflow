@@ -75,7 +75,7 @@ export class NotificationService {
     const updated = await prisma.notification.update({
       where: { id: notification.id },
       data: {
-        status: result.success ? NotificationStatus.delivered : NotificationStatus.failed,
+        status: result.success ? NotificationStatus.success : NotificationStatus.failed,
         latencyMs,
         errorMessage: result.error,
         sentAt: result.success ? new Date() : null,
@@ -103,7 +103,7 @@ export class NotificationService {
       const chunk = recipients.slice(i, i + concurrency);
       const chunkPromises = chunk.map((to) => 
         this.send(userId, apiKeyId, channel, to, subject, body, templateId, variables)
-          .then(res => ({ to, success: res.status === NotificationStatus.delivered, error: res.errorMessage }))
+          .then(res => ({ to, success: res.status === NotificationStatus.success, error: res.errorMessage }))
           .catch(err => ({ to, success: false, error: err.message }))
       );
       
@@ -112,5 +112,27 @@ export class NotificationService {
     }
 
     return results;
+  }
+
+  static async record(
+    userId: string,
+    apiKeyId: string | null,
+    channel: Channel,
+    recipient: string,
+    status: NotificationStatus,
+    errorMessage?: string
+  ) {
+    return prisma.notification.create({
+      data: {
+        userId,
+        apiKeyId,
+        channel,
+        recipient,
+        status,
+        errorMessage,
+        subject: 'Blocked Attempt',
+        body: 'This notification was blocked or paused.',
+      },
+    });
   }
 }
