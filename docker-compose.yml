@@ -33,6 +33,7 @@ services:
     environment:
       VITE_API_URL: http://localhost:4000
       VITE_SOCKET_URL: http://localhost:4000
+      VITE_SOC_AUTO_IP: "true"
 
 volumes:
   pgdata:

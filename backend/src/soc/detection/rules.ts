@@ -1,201 +1,277 @@
+/**
+ * SOC Detection Rules
+ * Enhanced with behavioral baselines, risk scoring, and correlation engine.
+ * All existing checks preserved and upgraded.
+ */
+
 import prisma from '../../lib/prisma';
 import { AlertSeverity, createAlert } from '../alerts/alertService';
+import { addRiskScore, getRiskScore } from './riskScoring';
+import { correlateAlerts } from './correlationEngine';
+import { enrichIpIntelligence } from './ipIntelligence';
+import { isInternalIp } from '../../lib/ipUtils';
+
+// ── Brute Force ──────────────────────────────────────────────────────────────
 
 export const checkBruteForce = async (ip: string) => {
   if (!ip) return;
 
   const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-  
+
   const failedCount = await prisma.securityEvent.count({
-    where: {
-      eventType: 'LOGIN_FAILURE',
-      ip,
-      createdAt: { gte: fiveMinutesAgo }
-    }
+    where: { eventType: 'LOGIN_FAILURE', ip, createdAt: { gte: fiveMinutesAgo } },
   });
 
-  console.log(`[SOC Debug] IP ${ip} has ${failedCount} total failed logins in 5m`);
+  console.log(`[SOC] IP ${ip} — ${failedCount} failed logins in 5m`);
 
   if (failedCount >= 5) {
+    const score = addRiskScore(ip, 'BRUTE_FORCE');
     await createAlert(
-      'BRUTE_FORCE', 
-      AlertSeverity.HIGH, 
-      `More than ${failedCount} failed logins from IP: ${ip} in the last 5 minutes.`, 
-      { ip, failedCount }
+      'BRUTE_FORCE',
+      AlertSeverity.HIGH,
+      `${failedCount} failed logins from IP ${ip} in the last 5 minutes.`,
+      { ip, failedCount, riskScore: score },
+      score
     );
+    await correlateAlerts(undefined, ip);
   }
 };
+
+// ── Multiple IP Login ─────────────────────────────────────────────────────────
 
 export const checkMultiIpLogin = async (userId: string) => {
   if (!userId) return;
 
   const lastHour = new Date(Date.now() - 60 * 60 * 1000);
-  
+
   const events = await prisma.securityEvent.findMany({
-    where: {
-      eventType: 'LOGIN_SUCCESS',
-      userId,
-      createdAt: { gte: lastHour }
-    },
+    where: { eventType: 'LOGIN_SUCCESS', userId, createdAt: { gte: lastHour } },
     select: { ip: true },
-    distinct: ['ip']
+    distinct: ['ip'],
   });
 
-  // Filter out local IPs
-  const ips = events.map(e => e.ip).filter(ip => ip && !ip.includes('127.0.0.1') && ip !== '::1');
+  const ips = events
+    .map(e => e.ip)
+    .filter((ip): ip is string => !!ip && !isInternalIp(ip));
 
   if (ips.length >= 3) {
+    const score = addRiskScore(userId, 'MULTI_IP_LOGIN');
     await createAlert(
-      'MULTIPLE_IPS', 
-      AlertSeverity.MEDIUM, 
-      `User ${userId} logged in from >= 3 distinct IPs in the last hour.`, 
-      { userId, ips }
+      'MULTIPLE_IPS',
+      AlertSeverity.MEDIUM,
+      `User ${userId} logged in from ${ips.length} distinct IPs in the last hour.`,
+      { userId, ips, riskScore: score },
+      score
     );
+    await correlateAlerts(userId, undefined);
   }
 };
+
+// ── API Rate Spikes ───────────────────────────────────────────────────────────
 
 export const checkApiSpikes = async (userId: string) => {
   if (!userId) return;
 
   const lastMinute = new Date(Date.now() - 60 * 1000);
   const rateLimitEvents = await prisma.securityEvent.count({
-    where: {
-      eventType: 'RATE_LIMIT',
-      userId,
-      createdAt: { gte: lastMinute }
-    }
+    where: { eventType: 'RATE_LIMIT', userId, createdAt: { gte: lastMinute } },
   });
 
   if (rateLimitEvents > 10) {
+    const score = addRiskScore(userId, 'API_SPIKE');
     await createAlert(
-      'API_SPIKE', 
-      AlertSeverity.HIGH, 
-      `User ${userId} hit rate limit constraints ${rateLimitEvents} times in 1 minute.`, 
-      { userId, rateLimitEvents }
+      'API_SPIKE',
+      AlertSeverity.HIGH,
+      `User ${userId} triggered rate limits ${rateLimitEvents}× in 1 minute.`,
+      { userId, rateLimitEvents, riskScore: score },
+      score
     );
   }
 };
 
+// ── Unusual Geolocation ───────────────────────────────────────────────────────
+
 export const checkUnusualGeolocation = async (ip: string, userId: string) => {
-  if (!ip) return;
+  if (!ip || !userId) return;
 
   try {
-    const response = await fetch(`http://ip-api.com/json/${ip}`);
-    const data = await response.json();
+    const geo = await enrichIpIntelligence(ip);
+    if (!geo) return;
 
-    if (data.status !== 'success') return;
+    const { country, city, lat, lon } = geo;
 
-    const { country, city, isp } = data;
-
-    // Retrieve the previous successful login to compare country
-    const prevLogin = await prisma.securityEvent.findFirst({
-      where: {
-        eventType: 'LOGIN_SUCCESS',
-        userId,
-        ip: { not: ip }
-      },
-      orderBy: { createdAt: 'desc' }
+    // Find a previous login that actually has geo metadata.
+    // This avoids missing alerts when the prior login was from localhost/private IP
+    // (no geo enrichment) and the next login is public/VPN.
+    const prevLogins = await prisma.securityEvent.findMany({
+      where: { eventType: 'LOGIN_SUCCESS', userId, ip: { not: ip } },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: { metadata: true },
+    });
+    const prevWithGeo = prevLogins.find(e => {
+      const m: any = e.metadata;
+      return m?.geo?.country && m?.geo?.lat !== undefined && m?.geo?.lon !== undefined;
     });
 
-    // If there is no previous login or no metadata we can't compare geolocation, but we record it for the future
-    if (!prevLogin) return;
-    
-    const prevMetadata = prevLogin.metadata as any;
-    if (prevMetadata?.geo?.country && prevMetadata.geo.country !== country) {
+    // Find the latest login event for this user/IP and update it with geo data
+    const latestEvent = await prisma.securityEvent.findFirst({
+      where: { eventType: 'LOGIN_SUCCESS', userId, ip },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (latestEvent) {
+      await prisma.securityEvent.update({
+        where: { id: latestEvent.id },
+        data: { 
+          metadata: { 
+            ...(latestEvent.metadata as any || {}),
+            geo: { country, city, lat, lon, ip } 
+          } 
+        },
+      });
+    }
+
+    if (!prevWithGeo) return;
+
+    const prevMeta = prevWithGeo.metadata as any;
+    if (prevMeta?.geo?.country && prevMeta.geo.country !== country) {
+      const score = addRiskScore(userId, 'UNUSUAL_GEO');
       await createAlert(
         'UNUSUAL_GEO',
         AlertSeverity.MEDIUM,
-        `User ${userId} logged in from a new country: ${country} (City: ${city}). Previous country: ${prevMetadata.geo.country}.`,
-        { userId, currentLoc: { country, city, ip }, previousLoc: { country: prevMetadata.geo.country } }
+        `User ${userId} logged in from ${country} (${city}). Previous country: ${prevMeta.geo.country}.`,
+        {
+          userId,
+          currentLoc: { country, city, ip, lat, lon },
+          previousLoc: { country: prevMeta.geo.country },
+          riskScore: score,
+        },
+        score
       );
+      await correlateAlerts(userId, ip);
     }
   } catch (error) {
-    console.error('Failed to resolve IP Geolocation:', error);
+    console.error('[SOC] Geolocation check failed:', error);
   }
 };
+
+// ── Internal → External Login Signal ──────────────────────────────────────────
+// A pragmatic dev-friendly alert: if a user previously logged in from an internal IP
+// (no geo), then later logs in from a public IP, raise a low/medium signal.
+export const checkInternalToExternalLogin = async (ip: string, userId: string) => {
+  if (!ip || !userId) return;
+  if (isInternalIp(ip)) return;
+
+  const lastHour = new Date(Date.now() - 60 * 60 * 1000);
+  const recent = await prisma.securityEvent.findMany({
+    where: {
+      eventType: 'LOGIN_SUCCESS',
+      userId,
+      createdAt: { gte: lastHour },
+      ip: { not: ip },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+    select: { ip: true },
+  });
+
+  const priorInternal = recent.find(e => e.ip && isInternalIp(e.ip));
+  if (!priorInternal?.ip) return;
+
+  const score = addRiskScore(userId, 'MULTI_IP_LOGIN');
+  await createAlert(
+    'MULTIPLE_IPS',
+    AlertSeverity.LOW,
+    `User ${userId} logged in from an internal IP and then from a public IP (${ip}) within the last hour.`,
+    { userId, from: priorInternal.ip, to: ip, riskScore: score },
+    score
+  );
+};
+
+// ── Credential Stuffing ───────────────────────────────────────────────────────
 
 export const checkCredentialStuffing = async (ip: string) => {
   if (!ip) return;
 
   const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-  
-  // Find failed logins from this IP and count distinct emails
+
   const failedEvents = await prisma.securityEvent.findMany({
-    where: {
-      eventType: 'LOGIN_FAILURE',
-      ip,
-      createdAt: { gte: tenMinutesAgo }
-    },
-    select: { metadata: true }
+    where: { eventType: 'LOGIN_FAILURE', ip, createdAt: { gte: tenMinutesAgo } },
+    select: { metadata: true },
   });
 
   const uniqueEmails = new Set(
-    failedEvents
-      .map(e => (e.metadata as any)?.email)
-      .filter(Boolean)
+    failedEvents.map(e => (e.metadata as any)?.email).filter(Boolean)
   );
 
-  console.log(`[SOC Debug] IP ${ip} has ${uniqueEmails.size} unique emails attempted in 10m`);
+  console.log(`[SOC] IP ${ip} — ${uniqueEmails.size} unique emails in 10m`);
 
   if (uniqueEmails.size >= 5) {
+    const score = addRiskScore(ip, 'CREDENTIAL_STUFFING');
     await createAlert(
       'CREDENTIAL_STUFFING',
       AlertSeverity.CRITICAL,
-      `Potential Credential Stuffing: ${uniqueEmails.size} different emails attempted from IP: ${ip} in 10 minutes.`,
-      { ip, emailCount: uniqueEmails.size, emails: Array.from(uniqueEmails) }
+      `Credential stuffing: ${uniqueEmails.size} different emails tried from IP ${ip} in 10 minutes.`,
+      { ip, emailCount: uniqueEmails.size, emails: Array.from(uniqueEmails), riskScore: score },
+      score
     );
+    await correlateAlerts(undefined, ip);
   }
 };
+
+// ── API Key Leakage ───────────────────────────────────────────────────────────
 
 export const checkApiKeyLeakage = async (apiKeyId: string) => {
   if (!apiKeyId) return;
 
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-  
+
   const usageEvents = await prisma.securityEvent.findMany({
     where: {
       eventType: 'API_KEY_USAGE',
       metadata: { path: ['apiKeyId'], equals: apiKeyId },
-      createdAt: { gte: oneHourAgo }
+      createdAt: { gte: oneHourAgo },
     },
     select: { ip: true },
-    distinct: ['ip']
+    distinct: ['ip'],
   });
 
   if (usageEvents.length >= 3) {
+    const score = addRiskScore(apiKeyId, 'API_KEY_LEAKAGE');
     await createAlert(
       'API_KEY_LEAKAGE',
       AlertSeverity.CRITICAL,
-      `Security Alert: API Key ${apiKeyId} is being used from ${usageEvents.length} different IP addresses in the last hour.`,
-      { apiKeyId, ipCount: usageEvents.length, ips: usageEvents.map(e => e.ip) }
+      `API Key ${apiKeyId} used from ${usageEvents.length} different IPs in the last hour.`,
+      { apiKeyId, ipCount: usageEvents.length, ips: usageEvents.map(e => e.ip), riskScore: score },
+      score
     );
   }
 };
+
+// ── Suspicious User Agent ─────────────────────────────────────────────────────
 
 export const checkSuspiciousUA = async (userId: string, currentUA: string) => {
   if (!userId || !currentUA) return;
 
   const lastLogins = await prisma.securityEvent.findMany({
-    where: {
-      eventType: 'LOGIN_SUCCESS',
-      userId
-    },
+    where: { eventType: 'LOGIN_SUCCESS', userId },
     orderBy: { createdAt: 'desc' },
     take: 5,
-    select: { userAgent: true }
+    select: { userAgent: true },
   });
 
-  // Simple heuristic: if the previous 5 logins exist and NONE of them match the current UA
   if (lastLogins.length >= 3 && !lastLogins.some(l => l.userAgent === currentUA)) {
-    // Check if current is a common script/bot UA
-    const isBot = /curl|python|postman|insomnia|go-http/i.test(currentUA);
-    
+    const isBot = /curl|python|postman|insomnia|go-http|wget|java\//i.test(currentUA);
+    const score = addRiskScore(userId, isBot ? 'SUSPICIOUS_UA_BOT' : 'SUSPICIOUS_UA_NEW');
+
     await createAlert(
       'SUSPICIOUS_UA',
       isBot ? AlertSeverity.HIGH : AlertSeverity.MEDIUM,
-      `Unusual device change for user ${userId}. Current User-Agent: ${currentUA}. \${isBot ? 'Detected as automated tool.' : ''}`,
-      { userId, currentUA, isBot }
+      `Unusual device for user ${userId}. UA: "${currentUA}".${isBot ? ' Detected as automated tool.' : ''}`,
+      { userId, currentUA, isBot, riskScore: score },
+      score
     );
+    await correlateAlerts(userId, undefined);
   }
 };
-

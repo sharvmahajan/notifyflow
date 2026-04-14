@@ -8,24 +8,34 @@ export enum AlertSeverity {
   CRITICAL = 'CRITICAL'
 }
 
-export const createAlert = async (type: string, severity: AlertSeverity, description: string, metadata: any = {}) => {
+export const createAlert = async (
+  type: string,
+  severity: AlertSeverity,
+  description: string,
+  metadata: any = {},
+  riskScore = 0,
+  correlatedWith: string[] = []
+) => {
   try {
     const alert = await prisma.securityAlert.create({
       data: {
         type,
         severity,
         description,
-        metadata
+        metadata,
+        riskScore,
+        correlatedWith,
       }
     });
-    
-    logger.info('Security alert created', { 
+
+    logger.info('Security alert created', {
       eventType: 'ALERT_CREATED',
       alertId: alert.id,
       type,
-      severity
+      severity,
+      metadata: { riskScore, correlatedWith },
     });
-    
+
     return alert;
   } catch (error) {
     logger.error('Failed to create security alert', { error });
