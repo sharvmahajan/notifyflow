@@ -4,7 +4,19 @@ import { AuthService } from '../services/auth.service';
 import { validate } from '../middleware/validate';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { logger } from '../soc/logging/logger';
-import { checkBruteForce, checkMultiIpLogin, checkUnusualGeolocation, checkCredentialStuffing, checkSuspiciousUA } from '../soc/detection/rules';
+import {
+  checkBruteForce,
+  checkMultiIpLogin,
+  checkUnusualGeolocation,
+  checkCredentialStuffing,
+  checkSuspiciousUA,
+  checkInternalToExternalLogin,
+} from '../soc/detection/rules';
+import { checkImpossibleTravel } from '../soc/detection/impossibleTravel';
+import { checkIpReputation } from '../soc/detection/ipIntelligence';
+import { checkRapidIpSwitching, recordLogout } from '../soc/detection/sessionAbuse';
+import { detectLoginDeviation } from '../soc/detection/behavioralBaseline';
+import { getClientIp } from '../lib/ipUtils';
 
 const router = Router();
 
@@ -48,45 +60,61 @@ router.post('/signup', validate(signupSchema), async (req, res: any) => {
       eventType: 'SIGNUP_FAILURE',
       ip: req.ip,
       userAgent: req.headers['user-agent'],
-      message: error.message
+      message: error.message,
     });
     res.status(400).json({ error: error.message });
   }
 });
 
 router.post('/login', validate(loginSchema), async (req, res: any) => {
+  const ip = getClientIp(req);
+  const ua = req.headers['user-agent'] || '';
+
   try {
     const { user, accessToken, refreshToken } = await AuthService.login(req.body);
     setCookies(res, accessToken, refreshToken);
-    
-    // Log success and check for multi-IP/Geo flags
     logger.info('Login success', {
       eventType: 'LOGIN_SUCCESS',
       userId: user.id,
-      ip: req.ip,
-      userAgent: req.headers['user-agent'],
-      metadata: { geo: {} } // Placeholder for actual geo logic if added
+      ip,
+      userAgent: ua,
+      metadata: { geo: {} }, // geo will be populated by checkUnusualGeolocation
     });
-    
-    await checkMultiIpLogin(user.id!);
-    await checkUnusualGeolocation(req.ip!, user.id!);
-    await checkSuspiciousUA(user.id!, req.headers['user-agent'] || '');
 
+    // Run all advanced checks non-blocking (fire-and-forget after response)
     res.json({ user });
+
+    // Post-response async security checks (don't delay user)
+    setImmediate(async () => {
+      await Promise.allSettled([
+        checkMultiIpLogin(user.id!),
+        checkUnusualGeolocation(ip, user.id!),
+        checkInternalToExternalLogin(ip, user.id!),
+        checkSuspiciousUA(user.id!, ua),
+        checkImpossibleTravel(user.id!, ip),
+        checkIpReputation(ip, user.id!),
+        checkRapidIpSwitching(user.id!),
+        detectLoginDeviation(user.id!),
+      ]);
+    });
+
   } catch (error: any) {
-    // Log failure and check for brute force
     logger.warn('Login failure', {
       eventType: 'LOGIN_FAILURE',
-      ip: req.ip,
-      userAgent: req.headers['user-agent'],
+      ip,
+      userAgent: ua,
       message: error.message,
-      metadata: { email: req.body.email }
+      metadata: { email: req.body.email },
     });
-    
-    await checkBruteForce(req.ip!);
-    await checkCredentialStuffing(req.ip!);
 
     res.status(401).json({ error: error.message });
+
+    setImmediate(async () => {
+      await Promise.allSettled([
+        checkBruteForce(ip),
+        checkCredentialStuffing(ip),
+      ]);
+    });
   }
 });
 
@@ -106,7 +134,15 @@ router.post('/refresh', async (req, res: any) => {
 
 router.post('/logout', async (req, res: any) => {
   const token = req.cookies.refreshToken;
+  const user = (req as any).user;
+
   await AuthService.logout(token);
+
+  // Record revoked session for post-logout token reuse detection
+  if (token && user?.id) {
+    await recordLogout(token, user.id).catch(() => {});
+  }
+
   res.clearCookie('accessToken');
   res.clearCookie('refreshToken');
   res.json({ message: 'Logged out' });
