@@ -7,12 +7,13 @@ interface User {
   email: string;
   name?: string;
   plan?: string;
+  isAdmin?: boolean;
 }
 
 interface AuthContextValue {
   user: User | null;
   isLoading: boolean;
-  login: (data: any) => Promise<void>;
+  login: (data: any, headers?: any) => Promise<void>;
   signup: (data: any) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -44,8 +45,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => window.removeEventListener('auth:expired', handleExpired);
   }, []);
 
-  const login = async (data: any) => {
-    const res = await authApi.login(data);
+  const login = async (data: any, headers?: any) => {
+    const res = await authApi.login(data, headers);
     setUser(res.user);
   };
 
