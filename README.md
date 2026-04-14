@@ -7,14 +7,13 @@ NotifyFlow allows external developers to send transactional notifications from t
 
 ## 🚀 Features
 
-- **JWT Authentication** (Access/Refresh tokens) with secure `httpOnly` cookies.
-- **API Key Management**: Environment-specific API keys (Live/Test) paired with high-performance Auth middleware.
-- **Dynamic Template Rendering** with custom variable support (e.g. `{{variable}}`).
-- **Provider Fallback**: Built-in fallback capabilities. When credentials (SendGrid/Twilio) are missing, it defaults to the `ConsoleProvider` for local testing.
-- **Versatile Sending**: Single and batch notifications to Email, SMS, and In-App channels.
-- **Real-Time Analytics Dashboard**: Beautiful, fully responsive Dark-mode Dashboard with data visualization.
-- **Audit Logging and Metrics**: Keeps a tight track of sending history.
-- **Advanced SOC**: Behavioral anomaly detection, impossible travel, risk scoring, alert correlation, SOAR auto-response.
+- **API Lifecycle & Security**: Granular controls to **Pause**, **Resume**, or **Delete** API keys with instant middleware enforcement.
+- **Per-API Analytics Dashboard**: Detailed performance tracking for individual keys, featuring volume charts, success rates, and latency metrics.
+- **Versatile Channel Ingestion**: Support for Email, SMS, In-App, **Push Notifications**, and **Webhooks**.
+- **Dynamic Template Rendering**: Liquidity-style rendering with custom variable support (e.g. `{{variable}}`).
+- **Provider Fallback**: Built-in resilience. High-priority channels (SendGrid/Twilio) automatically fallback to the `ConsoleProvider` in local/dev environments.
+- **Real-Time Global Dashboard**: Premium, dark-mode dashboard providing a bird's-eye view of account-wide metrics.
+- **Advanced SOC (Security Operations Center)**: 10 modular detectors for behavioral anomalies, impossible travel, risk scoring, and SOAR auto-response.
 
 ## 🛠 Technology Stack
 

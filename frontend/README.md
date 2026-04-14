@@ -1,73 +1,48 @@
-# React + TypeScript + Vite
+# NotifyFlow Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A enterprise-grade React dashboard for managing notifications, API keys, and platform security. Built with a focus on **Rich Aesthetics**, real-time data, and seamless developer experience.
 
-Currently, two official plugins are available:
+## ✨ Key Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Live Analytics**: Real-time visualization of notification volume and delivery rates.
+- **Key Management**: Full lifecycle controls (Pause, Resume, Revoke) with confirmation safeguards.
+- **Per-API Dashboards**: Draggable and interactive charts for deep-diving into specific key performance.
+- **SOC Center**: Admin-only interface for managing threat alerts, IP blocks, and SOAR responses.
+- **Template Builder**: Dynamic UI for creating and testing message templates with variables.
 
-## React Compiler
+## 🏗 Architecture
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The frontend is a **Vite-powered Single Page Application (SPA)** written in **TypeScript**.
 
-## Expanding the ESLint configuration
+### Core Stack
+- **Styling**: Tailwind CSS (Modular utility-first approach).
+- **Icons**: Lucide React.
+- **Charts**: Recharts (Custom themed for Dark Mode).
+- **Routing**: React Router v6.
+- **API Client**: Axios (with interceptors for automatic JWT refresh).
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### Folder Structure
+- `/src/pages`: Main view components (e.g., `ApiAnalytics.tsx`, `Dashboard.tsx`).
+- `/src/api`: Centralized API service layer.
+- `/src/context`: Global state (Auth & WebSocket connectivity).
+- `/src/components`: Atomic UI components and Layout wrappers.
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## 🎨 Design System
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+We follow a **Glassmorphism & Dark Mode** design philosophy:
+- **Surface**: Custom palette for high-contrast visibility.
+- **Micro-animations**: Lucide icons and Tailwind transitions for interactive elements.
+- **Consistency**: All metrics cards, tables, and buttons follow a predefined design token system in `tailwind.config.ts`.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## 🛠 Development
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Setup
+1. Install dependencies: `npm install`
+2. Configure `.env` (pointing to `VITE_API_URL`).
+3. Start dev server: `npm run dev`
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### API Integration
+New endpoints should be registered in `/src/api/` using the instance that includes the token refresh logic.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+### Protected Routes
+Routes are wrapped in `ProtectedRoute` components to ensure only authenticated users (or admins) can access specific sections like the SOC Dashboard.
