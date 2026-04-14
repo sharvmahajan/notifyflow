@@ -3,8 +3,12 @@ import prisma from '../../lib/prisma';
 import TransportStream from 'winston-transport';
 
 class PrismaTransport extends TransportStream {
+  constructor(opts?: any) {
+    super(opts);
+  }
+
   log(info: any, callback: () => void) {
-    setImmediate(() => this.emit('logged', info));
+    setImmediate(() => (this as any).emit('logged', info));
 
     const { level, message, userId, eventType, ip, userAgent, endpoint, status, metadata, ...extra } = info;
 
