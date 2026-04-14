@@ -41,23 +41,64 @@ export class ApiKeyService {
 
   static async listKeys(userId: string) {
     return prisma.apiKey.findMany({
-      where: { userId, revokedAt: null },
+      where: { userId, status: { not: 'DELETED' } },
       select: {
         id: true,
         name: true,
         prefix: true,
         environment: true,
+        status: true,
         createdAt: true,
         lastUsedAt: true,
+        updatedAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  static async pauseKey(userId: string, id: string) {
+    const key = await prisma.apiKey.findFirst({ where: { id, userId } });
+    if (!key) throw new Error('API key not found');
+    if (key.status === 'PAUSED') throw new Error('API is already paused');
+    if (key.status === 'DELETED') throw new Error('Cannot pause a deleted API');
+
+    return prisma.apiKey.update({
+      where: { id },
+      data: { status: 'PAUSED', updatedAt: new Date() },
+    });
+  }
+
+  static async resumeKey(userId: string, id: string) {
+    const key = await prisma.apiKey.findFirst({ where: { id, userId } });
+    if (!key) throw new Error('API key not found');
+    if (key.status === 'ACTIVE') throw new Error('API is already active');
+    if (key.status === 'DELETED') throw new Error('Cannot resume a deleted API');
+
+    return prisma.apiKey.update({
+      where: { id },
+      data: { status: 'ACTIVE', updatedAt: new Date() },
+    });
+  }
+
+  static async deleteKey(userId: string, id: string) {
+    const key = await prisma.apiKey.findFirst({ where: { id, userId } });
+    if (!key) throw new Error('API key not found');
+    if (key.status === 'DELETED') throw new Error('API is already deleted');
+
+    return prisma.apiKey.update({
+      where: { id },
+      data: { 
+        status: 'DELETED', 
+        updatedAt: new Date(),
+        // Invalidate key by prepending DELETED_ to hash so it never matches
+        keyHash: `DELETED_${key.keyHash}`
       },
     });
   }
 
   static async revokeKey(userId: string, id: string) {
-    // Note: ensure the key belongs to the user
-    return prisma.apiKey.updateMany({
-      where: { id, userId },
-      data: { revokedAt: new Date() },
-    });
+    // Legacy mapping to delete for simplicity or keep as is.
+    // Prompt says pause/resume/delete. Revoke seems like old name for delete.
+    return this.deleteKey(userId, id);
   }
 }

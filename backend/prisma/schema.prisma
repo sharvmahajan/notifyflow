@@ -32,14 +32,17 @@ model ApiKey {
   keyHash      String        @unique
   prefix       String
   environment  Environment   @default(live)
+  status       ApiKeyStatus  @default(ACTIVE)
   permissions  Json          @default("[]")
   lastUsedAt   DateTime?
   revokedAt    DateTime?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   notifications Notification[]
+  analytics     ApiAnalytics[]
   @@index([userId])
   @@index([keyHash])
+  @@index([status])
 }
 
 model Template {
@@ -74,6 +77,11 @@ model Notification {
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
   @@index([userId])
+  @@index([apiKeyId])
+  @@index([createdAt])
+  @@index([status])
+  @@index([apiKeyId, createdAt])
+  @@index([apiKeyId, status])
   @@index([userId, channel])
   @@index([userId, status])
   @@index([userId, createdAt])
@@ -87,6 +95,32 @@ model RefreshToken {
   expiresAt DateTime
   createdAt DateTime @default(now())
   @@index([userId])
+}
+
+model ApiAnalytics {
+  id                  String   @id @default(cuid())
+  apiId               String
+  api                 ApiKey   @relation(fields: [apiId], references: [id])
+  date                DateTime
+  totalNotifications  Int      @default(0)
+  successCount        Int      @default(0)
+  failureCount        Int      @default(0)
+  emailCount          Int      @default(0)
+  smsCount            Int      @default(0)
+  pushCount           Int      @default(0)
+  webhookCount        Int      @default(0)
+  avgLatencyMs        Float    @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([apiId, date])
+  @@index([apiId, date])
+}
+
+enum ApiKeyStatus {
+  ACTIVE
+  PAUSED
+  DELETED
 }
 
 enum Plan {
@@ -109,12 +143,17 @@ enum Channel {
   email
   sms
   inapp
+  push
+  webhook
 }
 
 enum NotificationStatus {
   pending
   delivered
+  success
   failed
+  paused
+  blocked
 }
 
 model SecurityEvent {

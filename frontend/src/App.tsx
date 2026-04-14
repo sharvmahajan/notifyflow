@@ -5,6 +5,7 @@ import { Login } from './pages/Login';
 import { Signup } from './pages/Signup';
 import { Dashboard } from './pages/Dashboard';
 import { Keys } from './pages/Keys';
+import { ApiAnalytics } from './pages/ApiAnalytics';
 import { Templates } from './pages/Templates';
 import { Send } from './pages/Send';
 import { Logs } from './pages/Logs';
@@ -30,6 +31,7 @@ const AppRoutes = () => {
       <Route element={<RequireAuth><Layout /></RequireAuth>}>
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/keys" element={<Keys />} />
+        <Route path="/keys/:id/analytics" element={<ApiAnalytics />} />
         <Route path="/templates" element={<Templates />} />
         <Route path="/send" element={<Send />} />
         <Route path="/logs" element={<Logs />} />
